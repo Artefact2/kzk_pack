@@ -1,0 +1,52 @@
+kzkpack - a simple archive format for game data
+===============================================
+
+This project is licensed under the WTFPL, version 2. Check the COPYING
+file for more details.
+
+Any feedback, bug reports should be reported on :
+<http://projects.artefact2.com/projects/kzk_pack>
+
+If you need to contact the author, send an email to
+<artefact2@gmail.com>.
+
+Compiling
+=========
+
+To compile the Erlang source files, and create the "kzkpack"
+executable utility, just run the `make` command.
+
+To run the tests, run `make tests`. If they fail, then something is
+very wrong!
+
+Format specification
+====================
+
+A complete description is in the README.format file. If the
+description is ambiguous in any way, then the Erlang implementation
+provided acts as the reference.
+
+Command-line interface
+======================
+
+Even though pack files are primarily intended for games (where pack
+contents is accessed programmatically), a command-line tool is
+provided, and can be used to manipulate / create packs from the
+command-line.
+
+The full help can be read in the README.usage file. The same file will
+also be printed if you try to use the tool with incorrect arguments.
+
+Caveats / Known issues
+======================
+
+- A major version bump (for example 2.x -> 3.0) indicates incompatible
+  changes in the pack format itself. The new version will NOT be able
+  to read old packs! Be sure to unpack any existing packs with the old
+  version before upgrading, then recreate the pack with the new
+  version.
+
+- Do not try to add big files in a pack. If the file you are trying to
+  add cannot fit in RAM, you probably shouldn't add it. (This is a
+  problem with the current implementation: in order to compute the
+  SHA-1 hash of the file, all its contents must be in the RAM.)

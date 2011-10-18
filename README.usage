@@ -1,0 +1,64 @@
+kzkpack - create, alter and unpack KZK packs.
+
+Usage
+=====
+
+kzkpack <command> <pack_name> <arguments>...
+
+Where <command> is a valid command listed in the Commands section. The
+arguments depend on the chosen command.
+
+Commands
+========
+
+- create <pack_name> <file1> <file2> ...
+  
+  Create a new pack in <pack_name>. The new pack will contain every
+  file given as additional arguments.
+
+  If there is no specified files, or if the specified files is "-",
+  read a list of files from the standard input (newline-separated).
+
+  The given file names as arguments will also be used as file names in
+  the pack. So, they must not have a trailing "/", and you should
+  avoid paths that use "..", ".", or directory symlinks. While these
+  are legal filenames, they WILL cause trouble when unpacking.
+
+- append <pack_name> <file1> <file2> ...
+
+  Append files to an existing pack. Same usage as the "create" command.
+
+- unpack <pack_name> [<file1> <file2> ...]
+
+  Unpack the specified file(s) of the given pack in the current
+  directory. This operation can be dangerous if some file names from
+  the archive contain references to "..", or rely on symbolic links
+  etc. Use at your own risk!
+
+  If no file names are given, all the files in the pack are unpacked.
+
+- cat <pack_name> <file>
+
+  Get the contents of the specified file from the given pack, and dump
+  it to standard output.
+
+- ls <pack_name>
+
+  Print a list of file names (and their size, in bytes) from the
+  archive to the stardard output.
+
+- checksums <pack_name>
+
+  Print a list of file names (and their SHA-1 checksum) to the
+  stardard output.
+
+  The generated output can be redirected to a file and be used with
+  "sha1sum -c" to check the integrity of the unpacked files.
+
+- integrity-check <pack_name>
+
+  Check the integrity of the TOC and the archived files in the
+  specified pack.
+
+  The exit code is 0 if the check is OK, or non-zero if some integrity
+  failed.

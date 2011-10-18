@@ -1,0 +1,118 @@
+The KZK pack format
+===================
+(Version: 0x0001)
+
+The KZK pack format is a simple archive format, designed for storing
+game data (such as textures, sounds, shaders etc.). It only stores the
+file names and the SHA1 hash of their contents. No other attributes,
+such as file owner, modification time, etc. are stored. (For game
+data, all you need is the content from the name.)
+
+(Note: the files are stored uncompressed in the pack, for quick access
+and simpler code.)
+
+Conventions
+===========
+
+- All integers should be written in big-endian mode (most significant
+  bytes first). (Integer values can be conviniently read as-is in any
+  hex editor.)
+
+- File names are stored as UTF-8 strings. They are not
+  NULL-terminated.
+
+- Pack files should have the extension ".pack", although this is just
+  a recommendation.
+
+- If file names span over multiple directories, then "/" must be
+  used as a directory separator, and file names must not have a
+  leading "/".
+
+General structure
+=================
+
+The general structure of a pack file is as follows :
+
++------------+------------------------+---------------------------+
+|   Header   |          Data          |     Table of contents     |
++------------+------------------------+---------------------------+
+
+(Note: why put the TOC at the end of the file? The ZIP format also
+does this, because this makes it easier to append new files in the
+archive as you only have to append the data and the new TOC to the
+existing pack instead of having to rebuild the whole archive.)
+
+Header structure
+================
+
++-----------------------------------------------------------------+
+|                             Header                              |
++------------+------------+--------------+-------------+-----------+
+| "KZKPACK_" | <Version> | <DataOffset> | <TOCOffset> | <TOCSha1> | 
++------------+-----------+--------------+-------------+-----------+
+
+- "KZKPACK_" is a magic string used to identify such packs. Any pack
+  file (of any version) should start with this string (Hex version:
+  0x4b5a4b5041434b5f).
+
+- <Version> is a 32-bit unsigned integer. Different versions of packs
+  have a different internal structure, and are usually neither forward
+  nor backwards-compatible. The format described here is for the
+  version specified at the top of this file.
+
+- <DataOffset> is a 64-bit unsigned integer. It represents the
+  position in the file (number of bytes from the beginning of the
+  file) of the Data section.
+
+- <TOCOffset> is a 64-bit unsigned integer. Like <DataOffset>, but for
+  the position of the Table of contents (TOC).
+
+- <TOCSha1> is a 160-bit binary string. It is the SHA-1 hash of the
+  Table of contents. That is, the hash of the pack file from
+  <TOCOffset> to the end of the file.
+
+Data structure
+==============
+
++-------------------------------------------------------------+
+|                             Data                            |
++-----------+-----------+-----------+-------------+-----------+
+|   Data1   |   Data2   |   Data3   |     ...     |   DataN   |
++-----------+-----------+-----------+-------------+-----------+
+
+Every Data subsection is the actual content of a file stored in the
+pack. Subsection boundaries and filenames are specified in the TOC.
+
+TOC structure
+=============
+
++-----------------------------------------------------------------+
+|                             TOC                                 |
++------------+------------+------------+-------------+------------+
+|   Entry1   |   Entry2   |   Entry3   |     ...     |   EntryN   |
++------------+------------+------------+-------------+------------+
+
+Every Entry subsection consists of the following information :
+
++--------------------------------------------------------------------+
+|                             Entry                                  |
++------------+-----------+-----------+------------------+------------+
+| <FileSha1> | <DOffset> | <DLength> | <FilenameLength> | <Filename> |
++------------+-----------+-----------+------------------+------------+
+
+- <FileSha1> is a 160-bit binary string. It is the SHA-1 hash of the
+  file contents. It is the hash of this pack file, from (<DataOffset>
+  + <DOffset>) to (<DataOffset> + <DOffset> + <DLength>).
+
+- <DOffset> is a 64-bit unsigned integer. It is the offset, in bytes,
+  from the start of the Data section, where the file contents is
+  stored.
+
+- <DLength> is a 64-bit unsigned integer. It is the length, in bytes,
+  of the file contents.
+
+- <FilenameLength> is a 32-bit unsigned integer. It is the length, in
+  bytes (NOT in characters!), of the file name.
+
+- <Filename> is a string, and the actual file name. Its length is
+  variable, and indicated by the previous field.
