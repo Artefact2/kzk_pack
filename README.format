@@ -19,7 +19,7 @@ Conventions
   hex editor.)
 
 - File names are stored as UTF-8 strings. They are not
-  NULL-terminated.
+  NUL-terminated.
 
 - Pack files should have the extension ".pack", although this is just
   a recommendation.
@@ -47,7 +47,7 @@ Header structure
 
 +-----------------------------------------------------------------+
 |                             Header                              |
-+------------+------------+--------------+-------------+-----------+
++------------+-----------+--------------+-------------+-----------+
 | "KZKPACK_" | <Version> | <DataOffset> | <TOCOffset> | <TOCSha1> | 
 +------------+-----------+--------------+-------------+-----------+
 
