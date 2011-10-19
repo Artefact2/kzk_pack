@@ -17,17 +17,17 @@ main(Args) ->
     code:add_path(string:concat(filename:dirname(escript:script_name()), "/ebin")),
     case Args of
 	["create", PackName] ->
-	    create_pack(PackName, read_list_from_stdin(), create);
+	    create_pack(PackName, fun next_from_stdin/1, [], create);
 	["create", PackName, "-"] ->
-	    create_pack(PackName, read_list_from_stdin(), create);
+	    create_pack(PackName, fun next_from_stdin/1, [], create);
 	["create", PackName | List] ->
-	    create_pack(PackName, List, create);
+	    create_pack(PackName, fun next_from_list/1, List, create);
 	["append", PackName] ->
-	    create_pack(PackName, read_list_from_stdin(), append);
+	    create_pack(PackName, fun next_from_stdin/1, [], append);
 	["append", PackName, "-"] ->
-	    create_pack(PackName, read_list_from_stdin(), append);
+	    create_pack(PackName, fun next_from_stdin/1, [], append);
 	["append", PackName | List] ->
-	    create_pack(PackName, List, append);
+	    create_pack(PackName, fun next_from_list/1, List, append);
 	["cat", PackName, Filename] ->
 	    cat_from_pack(PackName, Filename);
 	["integrity-check", PackName] ->
@@ -96,15 +96,17 @@ integrity_check(PackName) ->
 	    halt(1)
     end.
 
-read_list_from_stdin() ->
-    read_list_from_stdin([]).
+next_from_list([]) ->
+    {[], []};
+next_from_list([H | T]) ->
+    {H, T}.
 
-read_list_from_stdin(List) ->
+next_from_stdin([]) ->
     case io:get_line(standard_io, "") of
 	eof ->
-	    List;
+	    {[], []};
 	Data ->
-	    read_list_from_stdin([string:strip(unicode:characters_to_list(Data), right, 10) | List])
+	    {string:strip(unicode:characters_to_list(Data), right, 10), []}
     end.
 
 is_filename_safe(H) ->
@@ -137,28 +139,39 @@ is_regular_file(H) ->
 	    end
     end.
 
-create_pack(PackName, List, Mode) ->
+is_not_in_pack(Pack, H) ->
+    case kzk_pack:has_file(Pack, H) of
+	true ->
+	    ?warning("omitting file already in archive: \"~s\"~n", [H]),
+	    false;
+	false -> true
+    end.
+
+create_pack(PackName, Next, NAcc, Mode) ->
     {ok, Pack} = case Mode of
 		     create -> kzk_pack:create(PackName);
 		     append -> kzk_pack:open(PackName, false)
 		 end,
-    NewPack = append_files_to_pack(Pack, List),
+    NewPack = append_files_to_pack(Pack, Next, NAcc),
     {ok, NewPack2} = kzk_pack:commit(NewPack),
     ok = kzk_pack:dispose(NewPack2).
 
-append_files_to_pack(Pack, []) ->
-    Pack;
-append_files_to_pack(Pack, [F | T]) ->
-    case is_filename_safe(F) andalso is_regular_file(F) andalso not kzk_pack:has_file(Pack, F) of
-	false ->
-	    ?warning("omitting file already in archive: \"~s\"~n", [F]),
-	    append_files_to_pack(Pack, T);
+append_files_to_pack(Pack, Next, Acc) ->
+    {F, NewAcc} = Next(Acc),
+    case F =:= [] of
 	true ->
-	    io:format("A ~ts", [F]),
-	    {ok, Contents} = file:read_file(F),
-	    {ok, NewPack} = kzk_pack:append_file(Pack, F, Contents),
-	    io:format("~n"),
-	    append_files_to_pack(NewPack, T)
+	    Pack;
+	false ->
+	    case is_filename_safe(F) andalso is_regular_file(F) andalso is_not_in_pack(Pack, F) of
+		false ->
+		    append_files_to_pack(Pack, Next, NewAcc);
+		true ->
+		    io:format("A ~ts", [F]),
+		    {ok, Contents} = file:read_file(F),
+		    {ok, NewPack} = kzk_pack:append_file(Pack, F, Contents),
+		    io:format("~n"),
+		    append_files_to_pack(NewPack, Next, NewAcc)
+	    end
     end.
 
 cat_from_pack(PackName, Filename) ->
