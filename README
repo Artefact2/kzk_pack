@@ -49,4 +49,7 @@ Caveats / Known issues
 - Do not try to add big files in a pack. If the file you are trying to
   add cannot fit in RAM, you probably shouldn't add it. (This is a
   problem with the current implementation: in order to compute the
-  SHA-1 hash of the file, all its contents must be in the RAM.)
+  SHA-1 hash of the file, all its contents must be in the RAM.) On the
+  other hand, extracting (even very big) files from a pack (with the
+  unpack or cat commands, for example) is done efficiently (RAM usage
+  is constant throughout the extraction process).
