@@ -8,7 +8,9 @@
 
 -module(kzk_pack).
 -include("pack.hrl").
--export([open/2, dispose/1, create/1, commit/1, append_file/3, list/1, has_file/2, get_file/2, integrity_check/1]).
+-export([open/2, dispose/1, create/1, commit/1, 
+	 append_file/3, list/1, has_file/2, integrity_check/1,
+	 get_file/2, get_file/4]).
 
 -define(MAGIC, "KZKPACK_").
 -define(BUFFER, 65024).
@@ -98,6 +100,10 @@ has_file(Pack, Filename) ->
 
 -spec(get_file(pack(), string()) -> {ok, binary()} | {error, file_not_found} | {error, contents_not_found}).
 get_file(Pack, Filename) ->
+    get_file(Pack, Filename, 0, infinity).
+
+-spec(get_file(pack(), string(), integer(), integer()) -> {ok, binary()} | {ok, eof} | {error, file_not_found} | {error, contents_not_found}).
+get_file(Pack, Filename, Offset, Length) ->
     case ets:lookup(Pack#pack.file_table, Filename) of
 	[] ->
 	    {error, file_not_found};
@@ -109,8 +115,19 @@ get_file(Pack, Filename) ->
 		    case DLength =:= 0 of
 			true -> {ok, <<>>};
 			false -> 
-			    {ok, Data} = file:pread(Pack#pack.io_device, Pack#pack.data_offset + DOffset, DLength),
-			    {ok, Data}
+			    case {Length, Offset} of
+				{_, Offset} when Offset >= DLength -> {ok, eof};
+				{infinity, _} ->
+				    {ok, Data} = file:pread(Pack#pack.io_device, 
+							    Pack#pack.data_offset + DOffset + Offset, 
+							    DLength - Offset),
+				    {ok, Data};
+				{0, _} -> <<>>;
+				_ -> {ok, Data} = file:pread(Pack#pack.io_device, 
+							     Pack#pack.data_offset + DOffset + Offset, 
+							     min(DLength - Offset, Length)),
+				     {ok, Data}
+			    end
 		    end
 	    end
     end.
