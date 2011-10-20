@@ -60,10 +60,9 @@ create(Filename) ->
 
 -spec(commit(pack()) -> {ok, pack()}).
 commit(Pack) ->
-    TOC = generate_toc(Pack),
-    NewPack = Pack#pack{toc_sha1 = crypto:sha(TOC)},
+    NewTOCSha1 = write_toc(Pack),
+    NewPack = Pack#pack{toc_sha1 = NewTOCSha1},
     ok = write_header(NewPack),
-    ok = write_toc(NewPack, TOC),
     {ok, NewPack}.
 
 -spec(append_file(pack(), string(), binary()) -> {ok, pack()} | {error, name_clash}).
@@ -177,25 +176,25 @@ write_header(Pack) ->
 		       (Pack#pack.toc_sha1):160/bits>>),
     ok.
 
-write_toc(Pack, TOC) ->
-    ok = file:pwrite(Pack#pack.io_device, Pack#pack.toc_offset, TOC),
-    ok.
+write_toc(Pack) ->
+    write_toc_entry(Pack, ets:first(Pack#pack.file_table), crypto:sha_init(), 0).
 
-generate_toc(Pack) ->
-    generate_toc_entry(Pack, ets:first(Pack#pack.file_table)).
-
-generate_toc_entry(_Pack, '$end_of_table') ->
-    <<>>;
-generate_toc_entry(Pack, Filename) ->
+write_toc_entry(_Pack, '$end_of_table', Sha1Context, _Offset) ->
+    crypto:sha_final(Sha1Context);
+write_toc_entry(Pack, Filename, Sha1Context, Offset) ->
     [{Filename, Sha1}] = ets:lookup(Pack#pack.file_table, Filename),
     [{Sha1, DOffset, DLength}] = ets:lookup(Pack#pack.sha1_table, Sha1),
     BinFilename = unicode:characters_to_binary(Filename, utf8),
     FilenameLength = size(BinFilename),
-    <<Sha1/binary, DOffset:64/unsigned-integer-big,
+    Entry = <<Sha1/binary, DOffset:64/unsigned-integer-big,
       DLength:64/unsigned-integer-big,
       FilenameLength:32/unsigned-integer-big,
-      BinFilename/binary,
-      (generate_toc_entry(Pack, ets:next(Pack#pack.file_table, Filename)))/binary>>.
+      BinFilename/binary>>,
+    ok = file:pwrite(Pack#pack.io_device, Pack#pack.toc_offset + Offset, Entry),
+    write_toc_entry(Pack, 
+		    ets:next(Pack#pack.file_table, Filename), 
+		    crypto:sha_update(Sha1Context, Entry), 
+		    Offset + size(Entry)).
 
 list(_Pack, Acc, '$end_of_table') -> Acc;
 list(Pack, Acc, Filename) ->
