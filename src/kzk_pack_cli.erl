@@ -10,7 +10,6 @@
 -include_lib("kernel/include/file.hrl").
 -export([main/1]).
 
--define(LARGEFILE_BUFSIZE, 64 * 1024). % 64 KiB is totally arbitrary.
 -define(warning(Format, Args), io:format(standard_error, string:concat("kzkpack: ", Format), Args)).
 
 main(Args) ->
@@ -167,8 +166,7 @@ append_files_to_pack(Pack, Next, Acc) ->
 		    append_files_to_pack(Pack, Next, NewAcc);
 		true ->
 		    io:format("A ~ts", [F]),
-		    {ok, Contents} = file:read_file(F),
-		    {ok, NewPack} = kzk_pack:append_file(Pack, F, Contents),
+		    {ok, NewPack} = kzk_pack:append_file_raw(Pack, F, F),
 		    io:format("~n"),
 		    append_files_to_pack(NewPack, Next, NewAcc)
 	    end
@@ -179,12 +177,12 @@ cat_from_pack(PackName, Filename) ->
     cat_from_pack(standard_io, Pack, Filename, 0).
     
 cat_from_pack(IoDevice, Pack, Filename, Offset) ->
-    case kzk_pack:get_file(Pack, Filename, Offset, ?LARGEFILE_BUFSIZE) of
+    case kzk_pack:get_file(Pack, Filename, Offset, 64 * 1024) of
 	{ok, eof} ->
 	    ok;
 	{ok, Data} ->
 	    file:write(IoDevice, Data),
-	    cat_from_pack(IoDevice, Pack, Filename, Offset + ?LARGEFILE_BUFSIZE);
+	    cat_from_pack(IoDevice, Pack, Filename, Offset + 64 * 1024);
 	{error, file_not_found} ->
 	    ?warning("file not found in pack: \"~s\"~n", [Filename])
     end.

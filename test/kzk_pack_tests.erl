@@ -9,8 +9,14 @@
 -module(kzk_pack_tests).
 -include_lib("eunit/include/eunit.hrl").
 -define(TEST_PACK_NAME, "test_pack.pack").
+-define(TEST_FILE_NAME, "test_file.foo.bar____").
+-define(TEST_FILE_CONTENTS, <<"Hello, World. This is a test-generated file.">>).
+
+create_test_files() ->
+    ok = file:write_file(?TEST_FILE_NAME, ?TEST_FILE_CONTENTS).
 
 delete_test_pack(_) ->
+    file:delete(?TEST_FILE_NAME),
     file:delete(?TEST_PACK_NAME).
 
 test_empty_pack() ->
@@ -36,26 +42,30 @@ test_nonempty_pack() ->
     {ok, Pack3} = kzk_pack:append_file(Pack2, "foo1.txt", <<"bar">>),
     {ok, Pack4} = kzk_pack:append_file(Pack3, "foo2.txt", <<"bar">>),
     {ok, Pack5} = kzk_pack:append_file(Pack4, "foo3.txt", <<"baz">>),
-    {error, name_clash} = kzk_pack:append_file(Pack5, "foo0.txt", <<"not_empty">>),
-    {ok, Pack6} = kzk_pack:append_file(Pack5, "foo0.txt", <<>>), % Inserting the SAME file twice is legal
-    {ok, Pack7} = kzk_pack:commit(Pack6),
-    ok = kzk_pack:integrity_check(Pack7),
-    {ok, <<>>} = kzk_pack:get_file(Pack7, "foo0.txt"),
-    {ok, <<"bar">>} = kzk_pack:get_file(Pack7, "foo1.txt"),
-    {ok, <<"bar">>} = kzk_pack:get_file(Pack7, "foo2.txt"),
-    {ok, <<"baz">>} = kzk_pack:get_file(Pack7, "foo3.txt"),
-    {ok, <<"az">>} = kzk_pack:get_file(Pack7, "foo3.txt", 1, infinity),
-    {ok, <<"az">>} = kzk_pack:get_file(Pack7, "foo3.txt", 1, 2),
-    {ok, <<"z">>} = kzk_pack:get_file(Pack7, "foo3.txt", 2, 2),
-    {ok, eof} = kzk_pack:get_file(Pack7, "foo3.txt", 3, 1),
-    {ok, <<"ba">>} = kzk_pack:get_file(Pack7, "foo3.txt", 0, 2),
-    true = kzk_pack:has_file(Pack7, "foo1.txt"),
-    false = kzk_pack:has_file(Pack7, "nonexistent.txt"),
+    {ok, Pack6} = kzk_pack:append_file_raw(Pack5, "ext.txt", ?TEST_FILE_NAME),
+    {error, name_clash} = kzk_pack:append_file(Pack6, "foo0.txt", <<"not_empty">>),
+    {ok, Pack7} = kzk_pack:append_file(Pack6, "foo0.txt", <<>>), % Inserting the SAME file twice is legal
+    {ok, Pack} = kzk_pack:commit(Pack7),
+    ok = kzk_pack:integrity_check(Pack),
+    {ok, <<>>} = kzk_pack:get_file(Pack, "foo0.txt"),
+    {ok, <<"bar">>} = kzk_pack:get_file(Pack, "foo1.txt"),
+    {ok, <<"bar">>} = kzk_pack:get_file(Pack, "foo2.txt"),
+    {ok, <<"baz">>} = kzk_pack:get_file(Pack, "foo3.txt"),
+    {ok, <<"az">>} = kzk_pack:get_file(Pack, "foo3.txt", 1, infinity),
+    {ok, <<"az">>} = kzk_pack:get_file(Pack, "foo3.txt", 1, 2),
+    {ok, <<"z">>} = kzk_pack:get_file(Pack, "foo3.txt", 2, 2),
+    {ok, eof} = kzk_pack:get_file(Pack, "foo3.txt", 3, 1),
+    {ok, <<"ba">>} = kzk_pack:get_file(Pack, "foo3.txt", 0, 2),
+    {ok, ?TEST_FILE_CONTENTS} = kzk_pack:get_file(Pack, "ext.txt"),
+    true = kzk_pack:has_file(Pack, "foo1.txt"),
+    false = kzk_pack:has_file(Pack, "nonexistent.txt"),
+    ExtSize = size(?TEST_FILE_CONTENTS),
     {ok, 
-     [{_Hash, 0, "foo0.txt"}, 
+     [{_Hash3, ExtSize, "ext.txt"},
+      {_Hash, 0, "foo0.txt"}, 
       {Hash1, 3, "foo1.txt"}, 
       {Hash1, 3, "foo2.txt"}, 
-      {_Hash2, 3, "foo3.txt"}]} = kzk_pack:list(Pack7).
+      {_Hash2, 3, "foo3.txt"}]} = kzk_pack:list(Pack).
 
 empty_pack_test_() ->
     {setup,
@@ -66,7 +76,7 @@ empty_pack_test_() ->
 
 nonempty_pack_test_() ->
     {setup,
-     fun () -> ok end,
+     fun create_test_files/0,
      fun delete_test_pack/1,
      [fun test_nonempty_pack/0]
     }.

@@ -9,7 +9,8 @@
 -module(kzk_pack).
 -include("pack.hrl").
 -export([open/2, dispose/1, create/1, commit/1, 
-	 append_file/3, list/1, has_file/2, integrity_check/1,
+	 append_file/3, append_file_raw/3,
+	 list/1, has_file/2, integrity_check/1,
 	 get_file/2, get_file/4]).
 
 -define(MAGIC, "KZKPACK_").
@@ -17,7 +18,6 @@
 -define(HEADER_LENGTH, 8 + 4 + 8 + 8 + 20).
 -define(ENTRY_LENGTH, 20 + 8 + 8 + 4).
 -define(VERSION, 1).
--define(dbg(X), io:format("~n===== DEBUG OUTPUT =====~n~s~n~w~n~n", [??X, X]), X).
 
 -spec(open(string(), boolean()) -> {ok, pack()}).
 open(Filename, Readonly) ->
@@ -67,22 +67,12 @@ commit(Pack) ->
 
 -spec(append_file(pack(), string(), binary()) -> {ok, pack()} | {error, name_clash}).
 append_file(Pack, Filename, Data) ->
-    Sha1 = crypto:sha(Data),
-    case ets:lookup(Pack#pack.file_table, Filename) of
-	[{Filename, Sha1}] -> {ok, Pack}; % Adding an existing file with identical contents: nothing to do.
-	[{Filename, _Sha1}] -> {error, name_clash}; % Adding an existing file with different contents.
-	[] ->
-	    true = ets:insert(Pack#pack.file_table, {Filename, Sha1}),
-	    case ets:lookup(Pack#pack.sha1_table, Sha1) of
-		[{Sha1, _DOffset, _DLength}] -> {ok, Pack}; % Contents already in the pack.
-		[] -> % Append the contents in the Data section.
-		    DOffset = Pack#pack.toc_offset - Pack#pack.data_offset,
-		    DLength = size(Data),
-		    true = ets:insert(Pack#pack.sha1_table, {Sha1, DOffset, DLength}),
-		    ok = file:pwrite(Pack#pack.io_device, Pack#pack.data_offset + DOffset, Data),
-		    {ok, Pack#pack{toc_offset = Pack#pack.data_offset + DOffset + DLength}}
-	    end
-    end.
+    append_data(Pack, Filename, fun next_from_binary/1, Data).
+
+-spec(append_file_raw(pack(), string(), string()) -> {ok, pack()} | {error, name_clash}).
+append_file_raw(Pack, ArchiveFilename, RealFilename) ->
+    {ok, IoDevice} = file:open(RealFilename, [read, raw, binary, read_ahead]),
+    append_data(Pack, ArchiveFilename, fun next_from_iodevice/1, {IoDevice, 0}).
 
 -spec(has_file(pack(), string()) -> boolean()).
 has_file(Pack, Filename) ->
@@ -177,6 +167,8 @@ write_header(Pack) ->
     ok.
 
 write_toc(Pack) ->
+    {ok, _} = file:position(Pack#pack.io_device, Pack#pack.toc_offset),
+    ok = file:truncate(Pack#pack.io_device),
     write_toc_entry(Pack, ets:first(Pack#pack.file_table), crypto:sha_init(), 0).
 
 write_toc_entry(_Pack, '$end_of_table', Sha1Context, _Offset) ->
@@ -237,3 +229,58 @@ check_files(Pack, [{Sha1, _Size, Filename} | T], Corrupted) ->
 	false ->
 	    check_files(Pack, T, [Filename | Corrupted])
     end.
+
+append_data(Pack, Filename, NextBytesFunc, FuncAcc) ->
+    {ok, _} = file:position(Pack#pack.io_device, Pack#pack.toc_offset),
+    ok = file:truncate(Pack#pack.io_device),
+    append_data(Pack, Filename, NextBytesFunc, FuncAcc, crypto:sha_init(), 0).
+
+append_data(Pack, Filename, NextBytesFunc, FuncAcc, Sha1Ctx, Written) ->
+    case NextBytesFunc(FuncAcc) of
+	eof ->
+	    Sha1 = crypto:sha_final(Sha1Ctx),
+	    case ets:lookup(Pack#pack.file_table, Filename) of
+		[{Filename, Sha1}] ->
+		    {ok, Pack};
+		[{Filename, _}] ->
+		    {error, name_clash};
+		[] ->
+		    true = ets:insert(Pack#pack.file_table, {Filename, Sha1}),
+		    case ets:lookup(Pack#pack.sha1_table, Sha1) of
+			[{Sha1, _DOffset, _DLength}] ->
+						% Contents already in
+						% the pack ; reuse
+						% existing data, the
+						% stuff we just added
+						% will be truncated
+						% later in write_toc/1
+						% so it's no problem.
+			    {ok, Pack};
+			[] ->
+			    DOffset = Pack#pack.toc_offset - Pack#pack.data_offset,
+			    DLength = Written,
+			    true = ets:insert(Pack#pack.sha1_table, {Sha1, DOffset, DLength}),
+			    {ok, Pack#pack{toc_offset = Pack#pack.toc_offset + DLength}}
+		    end
+	    end;
+	{Data, NewAcc} ->
+	    ok = file:pwrite(Pack#pack.io_device, Pack#pack.toc_offset + Written, Data),
+	    append_data(Pack, Filename, 
+			NextBytesFunc, NewAcc, 
+			crypto:sha_update(Sha1Ctx, Data), 
+			Written + size(Data))
+    end.
+
+next_from_binary(<<>>) ->
+    eof;
+next_from_binary(Data) ->
+    {Data, <<>>}.
+
+next_from_iodevice({IoDevice, Offset}) ->
+    case file:pread(IoDevice, Offset, 64 * 1024) of
+	{ok, Data} ->
+	    {Data, {IoDevice, Offset + size(Data)}};
+	eof ->
+	    eof
+    end.
+
