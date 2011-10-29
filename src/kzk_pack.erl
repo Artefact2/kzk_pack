@@ -194,40 +194,49 @@ list(Pack, Acc, Filename) ->
     [{Sha1, _DOffset, DLength}] = ets:lookup(Pack#pack.sha1_table, Sha1),
     list(Pack, [{Sha1, DLength, Filename} | Acc], ets:prev(Pack#pack.file_table, Filename)).
 
-pread_until_eof(IoDevice, Position) ->
-    case file:pread(IoDevice, Position, ?BUFFER) of
+check_raw_chunk(Pack, Offset, Length, ExpectedSha1) ->
+    check_raw_chunk(Pack#pack.io_device, Offset, Length, ExpectedSha1, crypto:sha_init()).
+
+check_raw_chunk(_IoDevice, _Position, 0, Expected, Context) ->
+    crypto:sha_final(Context) =:= Expected;
+check_raw_chunk(IoDevice, Position, Remaining, Expected, Context) ->
+    ToRead = min(Remaining, 64 * 1024),
+    case file:pread(IoDevice, Position, ToRead) of
 	{ok, Data} ->
-	    <<Data/binary, (pread_until_eof(IoDevice, Position + ?BUFFER))/binary>>;
+	    check_raw_chunk(IoDevice, Position + size(Data),
+			    case Remaining of
+				infinity -> infinity;
+				_ -> Remaining - size(Data)
+			    end,
+			    Expected, crypto:sha_update(Context, Data));
 	eof ->
-	    <<>>
+	    check_raw_chunk(IoDevice, Position, 0, Expected, Context)
     end.
 
 check_toc(Pack) ->
-    TOC = pread_until_eof(Pack#pack.io_device, Pack#pack.toc_offset),
-    case crypto:sha(TOC) =:= Pack#pack.toc_sha1 of
+    case  check_raw_chunk(Pack, Pack#pack.toc_offset, infinity, Pack#pack.toc_sha1) of
 	true ->
 	    ok;
 	false -> {error, corrupted_toc}
     end.
 
 check_files(Pack) ->
-    {ok, List} = list(Pack),
-    case check_files(Pack, List, []) of
+    case check_files(Pack, ets:last(Pack#pack.sha1_table), []) of
 	[] ->
 	    ok;
 	NotEmptyList ->
 	    {error, {corrupted_files, NotEmptyList}}
     end.
 
-check_files(_Pack, [], Corrupted) ->
+check_files(_Pack, '$end_of_table', Corrupted) ->
     Corrupted;
-check_files(Pack, [{Sha1, _Size, Filename} | T], Corrupted) ->
-    {ok, Data} = get_file(Pack, Filename),
-    case crypto:sha(Data) =:= Sha1 of
+check_files(Pack, Sha1, Corrupted) ->
+    [{Sha1, DOffset, DLength}] = ets:lookup(Pack#pack.sha1_table, Sha1),
+    case check_raw_chunk(Pack, Pack#pack.data_offset + DOffset, DLength, Sha1) of
 	true ->
-	    check_files(Pack, T, Corrupted);
+	    check_files(Pack, ets:prev(Pack#pack.sha1_table, Sha1), Corrupted);
 	false ->
-	    check_files(Pack, T, [Filename | Corrupted])
+	    check_files(Pack, ets:prev(Pack#pack.sha1_table, Sha1), [Sha1 | Corrupted])
     end.
 
 append_data(Pack, Filename, NextBytesFunc, FuncAcc) ->
