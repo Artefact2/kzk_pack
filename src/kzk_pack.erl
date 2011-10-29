@@ -125,7 +125,7 @@ get_file(Pack, Filename, Offset, Length) ->
 list(Pack) ->
     {ok, list(Pack, [], ets:last(Pack#pack.file_table))}.
 
--spec(integrity_check(pack()) -> ok | {error, corrupted_toc} | {error, corrupted_files, [string()]}).
+-spec(integrity_check(pack()) -> ok | {error, corrupted_toc} | {error, {corrupted_files, [string()]}}).
 integrity_check(Pack) ->
     case check_toc(Pack) of
 	ok ->
@@ -216,7 +216,7 @@ check_files(Pack) ->
 	[] ->
 	    ok;
 	NotEmptyList ->
-	    {error, corrupted_files, NotEmptyList}
+	    {error, {corrupted_files, NotEmptyList}}
     end.
 
 check_files(_Pack, [], Corrupted) ->

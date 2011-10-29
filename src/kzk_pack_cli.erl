@@ -86,8 +86,8 @@ list_to_hex_list([H | T], Acc) ->
 
 integrity_check(PackName) ->
     {ok, Pack} = kzk_pack:open(PackName, true),
-    case kzk_pack:list(Pack) of
-	{ok, _Pack} ->
+    case kzk_pack:integrity_check(Pack) of
+	ok ->
 	    io:format("kzkpack: integrity check successful.~n"),
 	    halt(0);
 	{error, Error} ->
