@@ -62,3 +62,53 @@ Commands
 
   The exit code is 0 if the check is OK, or non-zero if some integrity
   failed.
+
+Examples
+========
+
+- Create a pack that contains all the files from the current
+  directory:
+
+  find * -type f | kzkpack create ~/pack.pack
+
+  Note 1: you may be tempted to use `find .`, but in that case you
+  will have to remove the "./" prefix of every file name. Unless it
+  doesn't bother you and you don't forget it when reading files from
+  the pack.
+
+  Note 2: the "-type f" is optional, if you don't mind having a
+  warning message generated for every skipped directory and other
+  special files (like sockets, devices, symlinks etc.).
+
+  Note 3: this is the preffered method when you are adding a
+  ridiculously large number of files.
+
+- Extract a file from the pack, but with a different filename:
+
+  kzkpack cat pack.pack PackFilename > NewFilename
+
+- Remove some files from the pack: since there is no command to do
+  this, you will have to extract the pack in an empty directory,
+  remove the files you want, and recreate the pack.
+
+  mkdir -p /tmp/temporary_directory
+  cd /tmp/temporary_directory
+  kzkpack unpack ~/pack.pack
+  rm file1 file2 file3 ...
+  find * -type f | kzkpack create ~/new_pack.pack 
+  mv ~/new_pack.pack ~/pack.pack
+
+  Note: if you have fancy prefixes, or special file names, you will
+  have to improvise a bit!
+
+- Check the integrity of the packed files by comparing them to the
+  files in the current directory:
+
+  kzkpack checksums pack.pack | sha1sums -c -
+
+- Play a packed video file without extracting it:
+
+  kzkpack cat pack.pack movie.mkv | mplayer -
+
+  Note: not all formats support being played back from a stream. Also,
+  the stream will probably not be seekable.
