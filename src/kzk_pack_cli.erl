@@ -14,6 +14,7 @@
 -module(kzk_pack_cli).
 
 -include_lib("kernel/include/file.hrl").
+-include("pack.hrl").
 -export([main/1]).
 
 -define(warning(Format, Args), io:format(standard_error, string:concat("kzkpack: ", Format), Args)).
@@ -35,6 +36,10 @@ main(Args) ->
 	    create_pack(PackName, fun next_from_stdin/1, [], append);
 	["append", PackName | List] ->
 	    create_pack(PackName, fun next_from_list/1, List, append);
+	["unpack", PackName] ->
+	    extract_all(PackName);
+	["unpack", PackName | List] ->
+	    extract(PackName, fun next_from_list/1, List);
 	["cat", PackName, Filename] ->
 	    cat_from_pack(PackName, Filename);
 	["integrity-check", PackName] ->
@@ -116,6 +121,22 @@ next_from_stdin([]) ->
 	    {string:strip(unicode:characters_to_list(Data), right, 10), []}
     end.
 
+next_from_ets({Table, Prev}) ->
+    case ets:next(Table, Prev) of
+	'$end_of_table' ->
+	    {[], []};
+	Next ->
+	    {Next, {Table, Next}}
+    end;
+next_from_ets(Pack) ->
+    Table = Pack#pack.file_table,
+    First = ets:first(Table),
+    case First of
+	'$end_of_table' ->
+	    {[], []};
+	_ -> {First, {Table, First}}
+    end.
+
 is_filename_safe(H) ->
     case string:str(H, "/") of
 	1 ->
@@ -152,6 +173,24 @@ is_not_in_pack(Pack, H) ->
 	    ?warning("omitting file already in archive: \"~s\"~n", [H]),
 	    false;
 	false -> true
+    end.
+
+is_in_pack(Pack, F) ->
+    case kzk_pack:has_file(Pack, F) of
+	true ->
+	    true;
+	false ->
+	    ?warning("omitting nonexistent file: \"~s\"~n", [F]),
+	    false
+    end.
+
+file_does_not_exist(F) ->
+    case {error, enoent} =:= file:read_file_info(F) of
+	true ->
+	    true;
+	false ->
+	    ?warning("omitting already existing file in current directory: \"~s\"~n", [F]),
+	    false
     end.
 
 create_pack(PackName, Next, NAcc, Mode) ->
@@ -194,3 +233,65 @@ cat_from_pack(IoDevice, Pack, Filename, Offset) ->
 	{error, file_not_found} ->
 	    ?warning("file not found in pack: \"~s\"~n", [Filename])
     end.
+
+extract(PackName, Next, Acc) ->
+    {ok, Pack} = kzk_pack:open(PackName, true),
+    extract_from_pack(Pack, Next, Acc).
+
+extract_all(PackName) ->
+    {ok, Pack} = kzk_pack:open(PackName, true),
+    extract_from_pack(Pack, fun next_from_ets/1, Pack).
+
+extract_from_pack(Pack, Next, Acc) ->
+    case Next(Acc) of
+	{[], _NewAcc} ->
+	    ok;
+	{Filename, NewAcc} ->
+	    case is_filename_safe(Filename) andalso is_in_pack(Pack, Filename) andalso file_does_not_exist(Filename) of
+		false ->
+		    extract_from_pack(Pack, Next, NewAcc);
+		true ->
+		    case maybe_create_directory(Filename) of
+			ok ->
+			    io:format("X ~s", [Filename]),
+			    {ok, IoDevice} = file:open(Filename, [write, raw, binary, delayed_write]),
+			    cat_from_pack(IoDevice, Pack, Filename, 0),
+			    ok = file:close(IoDevice),
+			    io:format("~n", []);
+			{error, subdir_is_a_file} ->
+			    ?warning("omitting file \"~s\", subdirectory is a file in current directory.~n", [Filename])
+		    end,
+		    extract_from_pack(Pack, Next, NewAcc)
+	    end
+    end.
+
+concat_bin([]) ->
+    <<>>;
+concat_bin([H | T]) ->
+    <<H/binary, (concat_bin(T))/binary>>.
+
+
+dirname([_]) ->
+    [];
+dirname([D | F]) ->
+    [D | dirname(F)].
+
+make_dirs(_Prefix, []) ->
+    ok;
+make_dirs(Prefix, [H | T]) ->
+    Dirname = concat_bin(lists:flatten([Prefix, H])),
+    case file:read_file_info(Dirname) of
+	{error, enoent} ->
+	    ok = file:make_dir(Dirname),
+	    make_dirs([Prefix, H, <<"/">>], T);
+	{ok, FileInfo} ->
+	    case FileInfo#file_info.type of
+		directory ->
+		    make_dirs([Prefix, H, <<"/">>], T);
+		_ ->
+		    {error, subdir_is_a_file}
+	    end
+    end.
+
+maybe_create_directory(Filename) ->
+    make_dirs([], dirname(re:split(Filename, "/"))).
