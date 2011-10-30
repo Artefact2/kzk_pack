@@ -1,5 +1,6 @@
 ROOT_DIR=$(dir $(realpath $(lastword $(MAKEFILE_LIST))))
 TEST_MODULES="[kzk_pack]"
+VERSION=$(shell cd $(ROOT_DIR); git describe --match "v*" | sed -e "s/^v//")
 
 default: kzkpack
 
@@ -24,4 +25,10 @@ clean:
 	@cd $(ROOT_DIR); rm ebin/*.beam
 	@cd $(ROOT_DIR); rm -R doc
 
-.PHONY: beamfiles tests kzkpack docs default clean
+tarball_source: kzk_pack-$(VERSION).tar
+
+kzk_pack-$(VERSION).tar:
+	@cd $(ROOT_DIR); git archive --prefix=kzk_pack-$(VERSION)/ -o kzk_pack-$(VERSION).tar v$(VERSION)
+	@echo $@
+
+.PHONY: beamfiles tests kzkpack docs default clean tarball_source
