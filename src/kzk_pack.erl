@@ -325,6 +325,7 @@ next_from_iodevice({IoDevice, Offset}) ->
 	{ok, Data} ->
 	    {Data, {IoDevice, Offset + size(Data)}};
 	eof ->
+	    ok = file:close(IoDevice),
 	    eof
     end.
 
