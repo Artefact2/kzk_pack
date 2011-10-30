@@ -1,25 +1,33 @@
-% Author: Romain "Artefact2" Dalmaso <artefact2@gmail.com>
-%
 % This program is free software. It comes without any warranty, to the
 % extent permitted by applicable law. You can redistribute it and/or
 % modify it under the terms of the Do What The Fuck You Want To Public
 % License, Version 2, as published by Sam Hocevar. See
 % http://sam.zoy.org/wtfpl/COPYING for more details.
 
+%% @author Romain Dalmaso <artefact2@gmail.com> 
+%%
+%% @doc This module provides the primitives needed to create and
+%% maintain KZK pack files. The full format is specified in the
+%% <code>README.format</code> file.
 -module(kzk_pack).
+
+%% @type pack(). An opaque type that represents a pack file.
 -include("pack.hrl").
+
 -export([open/2, dispose/1, create/1, commit/1, 
 	 append_file/3, append_file_raw/3,
 	 list/1, has_file/2, integrity_check/1,
 	 get_file/2, get_file/4]).
 
 -define(MAGIC, "KZKPACK_").
--define(BUFFER, 65024).
 -define(HEADER_LENGTH, 8 + 4 + 8 + 8 + 20).
 -define(ENTRY_LENGTH, 20 + 8 + 8 + 4).
 -define(VERSION, 1).
 
 -spec(open(string(), boolean()) -> {ok, pack()}).
+%% @doc Open an already existing pack from the given Filename. The
+%% {@link append_file/3} and {@link append_file_raw/3} will only work
+%% as expected if the Readonly parameter is false.
 open(Filename, Readonly) ->
     Modes = case Readonly of
 		true -> [read];
@@ -39,6 +47,10 @@ open(Filename, Readonly) ->
       }}.
 
 -spec(dispose(pack()) -> ok).
+%% @doc Close a pack opened with {@link open/2} or created with {@link
+%% create/1}. This function does not automatically call {@link
+%% commit/1}, be sure to always commit dirty packs or you will end up
+%% with an inconsistent file!
 dispose(Pack) ->
     ok = file:close(Pack#pack.io_device),
     true = ets:delete(Pack#pack.sha1_table),
@@ -46,6 +58,9 @@ dispose(Pack) ->
     ok.
 
 -spec(create(string()) -> {ok, pack()}).
+%% @doc Create a new, empty pack in file Filename. You must have write
+%% access to the file, and the file must not exist. Calling this
+%% method will create the file immediately.
 create(Filename) ->
     {ok, IoDevice} = file:open(Filename, [read, write, raw, binary, delayed_write, read_ahead]),
     commit(#pack{
@@ -59,6 +74,8 @@ create(Filename) ->
 	 }).
 
 -spec(commit(pack()) -> {ok, pack()}).
+%% @doc Rewrite the new header and table of contents of the pack. You
+%% must absolutely use it after appending files!
 commit(Pack) ->
     NewTOCSha1 = write_toc(Pack),
     NewPack = Pack#pack{toc_sha1 = NewTOCSha1},
@@ -66,15 +83,22 @@ commit(Pack) ->
     {ok, NewPack}.
 
 -spec(append_file(pack(), string(), binary()) -> {ok, pack()} | {error, name_clash}).
+%% @doc Append a file in the pack from existing data. If a file with
+%% the same filename is already in the pack, an error will be returned
+%% if the contents differ.
 append_file(Pack, Filename, Data) ->
     append_data(Pack, Filename, fun next_from_binary/1, Data).
 
 -spec(append_file_raw(pack(), string(), string()) -> {ok, pack()} | {error, name_clash}).
+%% @doc Append a file in the pack from a file on the disk. This is
+%% obviously more efficient than {@link append_file/3} for large
+%% files.
 append_file_raw(Pack, ArchiveFilename, RealFilename) ->
     {ok, IoDevice} = file:open(RealFilename, [read, raw, binary, read_ahead]),
     append_data(Pack, ArchiveFilename, fun next_from_iodevice/1, {IoDevice, 0}).
 
 -spec(has_file(pack(), string()) -> boolean()).
+%% @doc Checks whether a given filename is stored in the pack.
 has_file(Pack, Filename) ->
     case ets:lookup(Pack#pack.file_table, Filename) of
 	[] ->
@@ -88,10 +112,15 @@ has_file(Pack, Filename) ->
     end.
 
 -spec(get_file(pack(), string()) -> {ok, binary()} | {error, file_not_found} | {error, contents_not_found}).
+%% @doc Get the contents of a file stored in the pack. Use {@link
+%% get_file/4} instead when dealing with large files.
+%%
+%% @equiv get_file(Pack, Filename, 0, infinity)
 get_file(Pack, Filename) ->
     get_file(Pack, Filename, 0, infinity).
 
 -spec(get_file(pack(), string(), integer(), integer()) -> {ok, binary()} | {ok, eof} | {error, file_not_found} | {error, contents_not_found}).
+%% @doc Get some contents of a file stored in the pack.
 get_file(Pack, Filename, Offset, Length) ->
     case ets:lookup(Pack#pack.file_table, Filename) of
 	[] ->
@@ -122,10 +151,16 @@ get_file(Pack, Filename, Offset, Length) ->
     end.
 
 -spec(list(pack()) -> {ok, [{binary(), integer(), string()}]}).
+%% @doc Get a list of all the files stored in the pack, with their
+%% size and SHA-1 checksum.
 list(Pack) ->
     {ok, list(Pack, [], ets:last(Pack#pack.file_table))}.
 
 -spec(integrity_check(pack()) -> ok | {error, corrupted_toc} | {error, {corrupted_files, [string()]}}).
+%% @doc Check the integrity of the pack, by checking the SHA-1 hashes
+%% of every stored file and of the table of contents. This is, as
+%% expected, slow for large packs but the process will always use a
+%% constant amount of memory.
 integrity_check(Pack) ->
     case check_toc(Pack) of
 	ok ->

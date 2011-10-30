@@ -1,17 +1,25 @@
-% Author: Romain "Artefact2" Dalmaso <artefact2@gmail.com>
-%
 % This program is free software. It comes without any warranty, to the
 % extent permitted by applicable law. You can redistribute it and/or
 % modify it under the terms of the Do What The Fuck You Want To Public
 % License, Version 2, as published by Sam Hocevar. See
 % http://sam.zoy.org/wtfpl/COPYING for more details.
 
+%% @author Romain Dalmaso <artefact2@gmail.com>
+%%
+%% @doc This script provides the kzkpack tool to manipulate packs from
+%% the command-line conviniently. The <code>kzkpack</code> binary
+%% should be created by make(1) in the project's root directory. The
+%% full documentation of this tool can be found in
+%% <code>README.usage</code>.
 -module(kzk_pack_cli).
+
 -include_lib("kernel/include/file.hrl").
 -export([main/1]).
 
 -define(warning(Format, Args), io:format(standard_error, string:concat("kzkpack: ", Format), Args)).
 
+-spec(main([string()]) -> any()).
+%% @private
 main(Args) ->
     code:add_path(string:concat(filename:dirname(escript:script_name()), "/ebin")),
     case Args of
