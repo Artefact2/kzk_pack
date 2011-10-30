@@ -1,6 +1,6 @@
 ROOT_DIR=$(dir $(realpath $(lastword $(MAKEFILE_LIST))))
 TEST_MODULES="[kzk_pack]"
-VERSION=$(shell cd $(ROOT_DIR); git describe --match "v*" | sed -e "s/^v//")
+VERSION=$(shell cd $(ROOT_DIR); git describe --match "v*" 2>/dev/null | sed -e "s/^v//")
 
 default: kzkpack
 
